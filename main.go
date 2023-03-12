@@ -26,6 +26,7 @@ type model struct {
 	progress     progress.Model
 	quitting     bool
 	interrupting bool
+	paused       bool
 }
 
 func (m model) Init() tea.Cmd {
@@ -37,13 +38,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case timer.TickMsg:
 		var cmds []tea.Cmd
 		var cmd tea.Cmd
+		if !m.paused {
+			m.passed += m.timer.Interval
+			pct := m.passed.Milliseconds() * 100 / m.duration.Milliseconds()
+			cmds = append(cmds, m.progress.SetPercent(float64(pct)/100))
 
-		m.passed += m.timer.Interval
-		pct := m.passed.Milliseconds() * 100 / m.duration.Milliseconds()
-		cmds = append(cmds, m.progress.SetPercent(float64(pct)/100))
-
-		m.timer, cmd = m.timer.Update(msg)
-		cmds = append(cmds, cmd)
+			m.timer, cmd = m.timer.Update(msg)
+			cmds = append(cmds, cmd)
+		}
 		return m, tea.Batch(cmds...)
 
 	case tea.WindowSizeMsg:
@@ -77,6 +79,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.interrupting = true
 			return m, tea.Quit
 		}
+		if key.Matches(msg, pause) {
+			m.paused = !m.paused
+			cmd := m.timer.Toggle()
+			return m, cmd
+		}
 	}
 
 	return m, nil
@@ -106,6 +113,7 @@ var (
 	version             = "dev"
 	quitKeys            = key.NewBinding(key.WithKeys("esc", "q"))
 	intKeys             = key.NewBinding(key.WithKeys("ctrl+c"))
+	pause               = key.NewBinding(key.WithKeys(" "))
 	boldStyle           = lipgloss.NewStyle().Bold(true)
 	italicStyle         = lipgloss.NewStyle().Italic(true)
 )
