@@ -87,9 +87,6 @@ type model struct {
 func init() {
 	Root.Flags().StringVarP(&name, "name", "n", "", "timer name")
 	Root.Flags().BoolVarP(&altscreen, "fullscreen", "f", false, "fullscreen")
-
-	Root.AddCommand(manCmd)
-	Root.AddCommand(testCmd)
 }
 
 func (m model) Init() tea.Cmd {
@@ -126,6 +123,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case timer.TimeoutMsg:
 		m.quitting = true
+		save2(m)
 		return m, tea.Quit
 
 	case progress.FrameMsg:

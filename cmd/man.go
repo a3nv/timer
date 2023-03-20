@@ -8,6 +8,10 @@ import (
 	"os"
 )
 
+func init() {
+	Root.AddCommand(manCmd)
+}
+
 var (
 	manCmd = &cobra.Command{
 		Use:                   "man",
