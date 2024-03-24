@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -16,6 +17,109 @@ const (
 	padding  = 2
 	maxWidth = 80
 )
+
+var BigDigits = map[rune][]string{
+	'0': {
+		" 00000 ",
+		"0     0",
+		"0     0",
+		"0     0",
+		"0     0",
+		"0     0",
+		" 00000 ",
+	},
+	'1': {
+		"   1   ",
+		"  11   ",
+		" 111   ",
+		"   1   ",
+		"   1   ",
+		"   1   ",
+		" 11111 ",
+	},
+	'2': {
+		" 22222 ",
+		"2     2",
+		"     2 ",
+		"    2  ",
+		"   2   ",
+		"  2    ",
+		"2222222",
+	},
+	'3': {
+		" 33333 ",
+		"3     3",
+		"      3",
+		"  3333 ",
+		"      3",
+		"3     3",
+		" 33333 ",
+	},
+	'4': {
+		"4     4",
+		"4     4",
+		"4     4",
+		"4444444",
+		"      4",
+		"      4",
+		"      4",
+	},
+	'5': {
+		"5555555",
+		"5      ",
+		"5      ",
+		"555555 ",
+		"      5",
+		"      5",
+		"555555 ",
+	},
+	'6': {
+		" 66666 ",
+		"6      ",
+		"6      ",
+		"666666 ",
+		"6     6",
+		"6     6",
+		" 66666 ",
+	},
+	'7': {
+		"7777777",
+		"      7",
+		"     7 ",
+		"    7  ",
+		"   7   ",
+		"  7    ",
+		" 7     ",
+	},
+	'8': {
+		" 88888 ",
+		"8     8",
+		"8     8",
+		" 88888 ",
+		"8     8",
+		"8     8",
+		" 88888 ",
+	},
+	'9': {
+		" 99999 ",
+		"9     9",
+		"9     9",
+		" 999999",
+		"      9",
+		"      9",
+		" 99999 ",
+	},
+}
+
+var Colon = []string{
+	"     ",
+	"  *  ",
+	"  *  ",
+	"     ",
+	"  *  ",
+	"  *  ",
+	"     ",
+}
 
 var (
 	name                string
@@ -33,7 +137,7 @@ var (
 		Short:        "timer is like sleep, but with progress report",
 		Version:      version,
 		SilenceUsage: true,
-		Args:         cobra.ExactArgs(1),
+		Args:         cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			addSuffixIfArgIsNumber(&(args[0]), "s")
 			duration, err := time.ParseDuration(args[0])
@@ -48,6 +152,7 @@ var (
 			if duration < time.Minute {
 				interval = 100 * time.Millisecond
 			}
+			mode := args[1]
 			m, err := tea.NewProgram(model{
 				duration:  duration,
 				timer:     timer.NewWithInterval(duration, interval),
@@ -55,6 +160,7 @@ var (
 				name:      name,
 				altscreen: altscreen,
 				start:     time.Now(),
+				mode:      mode,
 			}, opts...).Run()
 			if err != nil {
 				return err
@@ -82,6 +188,9 @@ type model struct {
 	quitting     bool
 	interrupting bool
 	paused       bool
+	termWidth    int
+	termHeight   int
+	mode         string
 }
 
 func init() {
@@ -114,6 +223,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.altscreen && m.progress.Width > maxWidth {
 			m.progress.Width = maxWidth
 		}
+		m.termWidth = msg.Width
+		m.termHeight = msg.Height
 		return m, nil
 
 	case timer.StartStopMsg:
@@ -151,6 +262,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
+	switch m.mode {
+	case "bar":
+		return m.progressBar()
+	case "count":
+		return m.countDownTimer()
+	default:
+		return "Error: mode is required and must be either 'bar' or 'count'."
+	}
+}
+
+func (m model) progressBar() string {
 	if m.quitting || m.interrupting {
 		return "\n"
 	}
@@ -172,4 +294,74 @@ func addSuffixIfArgIsNumber(s *string, suffix string) {
 	if err == nil {
 		*s = *s + suffix
 	}
+}
+
+func (m model) countDownTimer() string {
+	if m.quitting || m.interrupting {
+		return "\n"
+	}
+
+	remaining := m.duration - m.passed
+	hours := remaining / time.Hour
+	remaining -= hours * time.Hour
+	minutes := remaining / time.Minute
+	remaining -= minutes * time.Minute
+	seconds := remaining / time.Second
+
+	// Convert hours, minutes, and seconds to strings
+	hStr := fmt.Sprintf("%02d", hours)
+	mStr := fmt.Sprintf("%02d", minutes)
+	sStr := fmt.Sprintf("%02d", seconds)
+
+	// Build the big digit representation for each component of the time
+	bigHour := buildBigDigitString(hStr)
+	bigMinute := buildBigDigitString(mStr)
+	bigSecond := buildBigDigitString(sStr)
+
+	// Combine the big digit lines into a single string
+	bigTime := ""
+	for i := 0; i < 7; i++ {
+		bigTime += bigHour[i] + Colon[i] + bigMinute[i] + Colon[i] + bigSecond[i] + "\n"
+	}
+
+	bigTimeLines := strings.Split(bigTime, "\n")
+	bigTimeHeight := len(bigTimeLines)
+	bigTimeWidth := len(bigTimeLines[0])
+
+	topPadding := max(0, (m.termHeight-bigTimeHeight)/2)
+	leftPadding := max(0, (m.termWidth-bigTimeWidth)/2)
+
+	// Clear the screen
+	clearScreen := "\033[H\033[2J"
+	// Build the centered bigTime with padding
+	centeredBigTime := clearScreen
+	for i := 0; i < topPadding; i++ {
+		centeredBigTime += "\n"
+	}
+	for _, line := range bigTimeLines {
+		centeredBigTime += strings.Repeat(" ", leftPadding) + line + "\n"
+	}
+
+	//return clearScreen + "\n" + centeredBigTime
+	return centeredBigTime
+}
+
+// max returns the maximum of two integers.
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// buildBigDigitString takes a string representation of a number (like "12")
+// and returns a slice of strings where each string is a line of the big digit representation
+func buildBigDigitString(numberStr string) []string {
+	var result [7]string
+	for line := 0; line < 7; line++ {
+		for _, digit := range numberStr {
+			result[line] += BigDigits[digit][line] + " "
+		}
+	}
+	return result[:]
 }
